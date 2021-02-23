@@ -1,0 +1,1556 @@
+---
+title: "Interpopulation differences in developmental plasticity of carnivores determine the emergence of a trophic interaction"
+author: "Keisuke Atsumi, Samuel R.P-J. Ross and Osamu Kishida"
+date: '`r format(Sys.time(), "%y/%m/%d %H:%M")`'
+subtitle: "Supplementary material"
+output:
+  html_document:
+    code_folding: hide
+    theme: united
+    toc: yes
+    toc_float: yes
+---
+
+<div style="margin-bottom:120px;">
+</div>
+
+This supplementary material includes all analytic code, data descriptions and appendices.
+
+<div style="margin-bottom:120px;">
+</div>
+
+# Setup
+
+### Load packages
+
+```{r}
+
+rm(list=ls())  # reset workspace
+
+pacman::p_load(
+ openxlsx    # open excel file
+ , lubridate # dates
+ , RcppRoll  # window functions
+ , tidyverse
+ , magrittr  # Extend pipe
+ , knitr     # rmarkdown
+ , kableExtra # nice tables
+ , pander     # nice tables
+ , agricolae  # Tukey
+ , patchwork
+)
+opts_chunk$set(
+  prompt=TRUE, message=FALSE, comment="", warning = FALSE
+  ) 
+options(
+  knitr.kable.NA = '',
+  scipen=100           # do not show numbers using exponential
+  )
+
+```
+
+<div style="margin-bottom:80px;">
+</div>
+
+### Load original functions
+
+`SRH_fun`: Return results of Scheirer–Ray–Hare (SRH) test
+
+`tukey.stats` : Return results of Tukey HSD post-hoc comparison
+
+`ANOVA_stats` : Return results of ANOVA
+
+```{r}
+
+#' Title: SRH_fun
+#' Show main results of SRH test in table
+#' @param model: $coefficients of glm summary
+SRH_fun <- function(x, mod = " ") {
+  
+  # calculate mean sq for total as sum(sum sq)/sum(Df)
+  ms_total <- sum(summary(x)[[1]][,2])/sum(summary(x)[[1]][,1])
+  
+  # create dataframe for Scheirer-Ray-Hare output
+  SRH.out <- as.data.frame(matrix(rownames(summary(x)[[1]])[c(1:nrow(summary(x)[[1]])-1)])) %>%
+    rename("Factor" = "V1") %>%
+    mutate(Df = summary(x)[[1]][c(1:nrow(summary(x)[[1]])-1),1])
+  
+  for (h in 1:nrow(SRH.out)) {
+    # get S-R-H test statistic
+    SRH.out$SRH[h]<-(summary(x)[[1]][h,2])/ms_total
+  }
+  
+  # add asterisk for significance
+  SRH.out.table <- SRH.out %>%
+    mutate(
+      # calculate P-value using test statistic and degrees of freedom
+      P = 1 - pchisq(SRH, Df),
+      Significance = ifelse(P < 0.05, "*", "")
+      )
+  
+  return(list(
+    SRH.out.table = SRH.out.table, SRH.out = SRH.out)
+    )
+
+}
+
+#' Title: tukey.stats
+#' Show main results of Tukey in table
+#' @param model: tukey result from function HSD.test
+tukey.stats <- function(tukey, mod = " ") {
+  left_join(
+    tukey$means %>%
+      mutate(Treat = rownames(.)) %>%
+      mutate_if(is.numeric, round, 2) %>%
+      mutate(
+        meanSE = str_c(.[, 1], std, sep = "±")
+        ) %>%
+      # arrange(desc(.[,1])) %>%
+      dplyr::select(Treat, meanSE),
+    tukey$groups %>% dplyr::select(groups) %>%
+      mutate(Treat = rownames(.))
+    )
+}
+
+
+# Plot settings
+mytheme <- theme(
+    axis.text.x = element_text(size=12, angle = -40, hjust = 0), 
+    axis.text.y = element_text(size=12),
+    axis.title.x = element_text(size=13), 
+    axis.title.y = element_text(size=13),
+    legend.text = element_text(size=12),
+    legend.title = element_text(size=12),
+    panel.background=element_rect(fill='white', colour='black', size=0.3),
+    panel.grid=element_blank()
+    )
+cbPalette.full <- 
+  c("#999999", "#E69F00", "#56B4E9", "#009E73", "#0072B2", "#D55E00", "#CC79A7")
+
+
+#' Title: ANOVA_stats
+#' Show main results of ANOVA in table
+#' @param model: $coefficients of glm summary
+ANOVA_stats <- function(model, mod = " ") {
+  model %>%
+    as.data.frame() %>%
+    rownames_to_column("Factors") %>%
+    rename("Pval" = "Pr(>F)", "F" = "F value", "d.f." = "Df", "SS" = "Sum Sq")  %>%
+    mutate_at("Pval", round, 3) %>%
+    mutate(P = ifelse(Pval == 0, "<0.001", Pval)) %>%
+    dplyr::select("Factors", "SS", "d.f.", "F", "P") %>%
+    mutate(significance = ifelse(P < 0.05, "+", ""))
+}
+
+```
+
+```{r}
+
+# Caption
+cap <- data.frame(
+  desc = c(
+    "Salamander mortality
+    (count) by day 18", 
+    "Tadpole mortality
+    (count) by day 32"
+    )
+  ) %>%
+  mutate_all(as.character)
+row.names(cap) <- c("sal", "tad")
+
+# Export experimental settings of each tank
+IDs <- read.xlsx('./Data.xlsx', sheet = "Count") %>%
+  dplyr::select(ID:HatchTiming) %>%
+  mutate_all(as.factor) %>% 
+  mutate(
+    # Combination of genetic strains of salamander & tadpole
+    SalxTad = str_c(.$Sal, .$Tad, sep = " "),
+    SizexSal = str_c(.$Size, .$Sal, sep = " "),
+    # Full treatment conditions = "Treat"    
+    Treat = str_c(.$Size, .$Sal, .$Tad, sep = " "),
+    SalxTadxHatchtiming = str_c(Sal, Tad, HatchTiming, sep = " ")
+    )  %>%
+  mutate_all(as.factor)
+
+```
+
+<div style="margin-bottom:120px;">
+</div>
+
+# Interaction strength
+
+### Original data description
+
+**ID** : Tank ID <br> 
+
+**Size** : Initial salamander size distribution. 
+
+- *Homo*, homogenous - suppressing salamander cannibalism <br> 
+
+- *Hetero*, heterogenous - facilitating salamander cannibalism  <br> 
+
+**Sal** : Salamander geographic population identity <br> 
+
+**Tad** : Tadpole geographic population identity <br> 
+
+**Hatchtiming** : Salamander hatch timing conditions.  <br> 
+
+- *mix*, initial size heterogenous treatment <br> 
+
+- *early*, early hatch timing sub-treatment of initial size homogenous treatment <br> 
+
+- *late*, late hatch timing sub-treatment of initial size homogenous treatment <br>
+
+**N.[sal OR tad]..[date]** : Counts of survived salamanders or tadpoles at the date <br>
+
+**Meta.[sal OR tad]..[date]** : Counts of metamorphosized salamanders or tadpoles every week (by the date) <br>
+
+**Mort.[sal OR tad]..[date]** : Counts of dead salamanders or tadpoles every week (calculated using weekly reduction of surviving individuals and metamorphosis counts) <br>
+
+```{r, results='asis', fig.height = 8, fig.width = 7}
+
+raw.dat  <- read.xlsx('./Data.xlsx', sheet = "Count") %>%
+  mutate_at(vars(ID:Tad), funs(as.factor(.))) %>% 
+  # treat mortality and metamorphism data as numeric
+  mutate_at(vars(contains("Meta")), funs(as.numeric(.))) %>% 
+  mutate_at(vars(contains("Mort")), funs(as.numeric(.)))
+
+raw.dat %>% 
+  kable("html") %>% kable_styling("striped", position = "left") %>% 
+  scroll_box(width = "100%", height = "300px")  
+
+```
+
+```{r}
+
+#++++++++++++++++++++++++++++++++++++++#
+# make tidy dataset
+#++++++++++++++++++++++++++++++++++++++#
+
+# Separate dead/metamorphosize tadpole/salamander  data
+for (i in c("Mort.tad", "Mort.sal")) {
+  
+  dat <- raw.dat %>%
+    dplyr::select("ID", contains(paste0(i, "."))) %>%
+    gather(
+      key = date, value = value, 
+      contains(paste0(i, "."))
+      ) %>%
+    arrange(ID, date)
+  
+  # Dates
+  dat$date <- str_replace_all(
+    dat$date, 
+    pattern = paste0(i, ".."), 
+    replacement = "2018\\."
+    ) %>%
+    chartr(".", "-", .) %>% ymd()
+
+  colnames(dat) <- c("ID", "date", i)
+  
+  # Assign distinct names to each dataset
+  assign(paste("dat", i, sep = "."), dat)
+
+}
+
+# Combine
+full.dat <- full_join(dat.Mort.tad, dat.Mort.sal, by = c("ID", "date")) %>%
+  full_join(IDs, ., by = "ID") %>% 
+  arrange(ID, date) %>%
+  mutate_at("ID", as.factor)
+
+# N of days since exp started = "Timing". You may use this
+full.dat$timing <- full.dat$date - ymd("2018-05-17")
+
+timeser.dat <- full.dat %>%
+  # excluded data of days only counted metamorphosized individuals - where mortality remains NA
+  drop_na(Mort.tad) %>%
+  # To conduct calculation at each tank
+  group_by(ID) %>%
+  # Cumulated N of dead salamanders and tadpoles in each tank
+  mutate(across(contains("Mort"), cumsum)) %>%
+  mutate(
+    SizexSal = str_c(Size, Sal, sep = " x "),
+    # Surviving N 
+    Surv.tad = 30 - Mort.tad,
+    Surv.sal = 15 - Mort.sal,
+    # Survival rate
+    Surv.rate.tad = (30 - Mort.tad)/30,
+    Surv.rate.sal = (15 - Mort.sal)/15    
+  ) %>%
+  # Remove metamorphosize data - irrelevant data
+  dplyr::select(-contains("Meta")) %>%
+  # To calculate survival in every week, make time-lagged data of survival
+  mutate(
+    Surv.lag.tad = 
+      lag(Surv.tad, default = 30, order_by = timing),
+    Surv.lag.sal = 
+      lag(Surv.sal, default = 15, order_by = timing),
+    ) %>%
+  # Survival in every week
+  mutate(
+    Surv.period.tad = Surv.tad/Surv.lag.tad,
+    Surv.period.sal = Surv.sal/Surv.lag.sal,
+    Period = as.factor(timing) %>% as.numeric()
+  ) %>%
+  left_join(IDs)
+
+raw.dat %>% 
+  group_by(Size, Sal, Tad) %>% 
+  summarise(length(ID)) %>% 
+  as.data.frame() %>% 
+  rename("Replicates (N)" = "length(ID)") %>% 
+  kable("html", caption = "Replications in each treatment") %>% 
+  kable_styling("striped", position = "left")
+
+```
+
+<div style="margin-bottom:80px;">
+</div>
+
+### Data check for zero-inflation
+
+```{r, results='asis'}
+
+for (sp in c("sal", "tad")) {
+  
+  if (sp == "sal") {
+
+  # add ranked variable to dataframe
+  dat <- timeser.dat %>%
+    filter(Period == 2) %>% 
+    .[, "Mort.sal"] %>% 
+    as.data.frame()
+  
+  } else {
+    
+  # add ranked variable to dataframe
+  dat <- timeser.dat %>%
+    filter(Period == 4) %>% 
+    .[, "Mort.sal"] %>% 
+    as.data.frame()
+  
+  }
+  
+  hist <- ggplot(dat, aes(x = dat[, 1])) +
+    geom_histogram() +
+    xlab(cap[sp,])
+  
+  print(hist)
+  
+  #+++++++++++++++++++++++++++++++++++++++++++#
+  # Zero-infration test
+  #+++++++++++++++++++++++++++++++++++++++++++#
+  lambda_est <- mean(dat[, 1])
+  p0_tilde <- exp(-lambda_est)
+  n0 <- sum(dat[, 1] == 0, na.rm=TRUE)
+  n <- length(dat[, 1])
+  # JVDB score test 
+  # `n*p0_tilde` : number of observtions 'expected' to be zero
+  numerator   <- (n0 -n*p0_tilde)^2
+  denominator <- n*p0_tilde*(1-p0_tilde) - n*lambda_est*(p0_tilde^2)
+  test_stat   <- numerator / denominator
+  pvalue      <- pchisq(test_stat,df=1, ncp=0, lower.tail=FALSE)
+  tibble(
+    'Score' = test_stat %>% 
+      round(2),
+    'Pval' = pvalue
+    ) %>%
+    mutate_at(-1, as.numeric) %>%
+    mutate_at("Pval", round, 3) %>%
+    mutate(P = ifelse(Pval == 0, "<0.001", Pval)) %>%
+    dplyr::select(-Pval) %>% 
+    kable("html", caption = paste("Zero-infrated test:", cap[sp,])) %>%
+    kable_styling("striped", position = "left") %>% 
+    print()
+
+}
+
+```
+As we see significant zero-inflation in salamander mortality by day 18 and tadpole mortality by day 32, parametric statsitics aren’t appropriate to compare mortality across treatments.
+
+
+<div style="margin-bottom:80px;">
+</div>
+
+## Scheirer-Ray-Hare test
+
+We use Scheirer-Ray-Hare (SRH) test, which extends the Kruskall-Wallis test to consider interactions between factors.
+
+**Treat** : Full factorial treatment for Initial size, and salamander and tadpole population identity
+```{r, results='asis', fig.height = 8, fig.width = 7}
+
+for (sp in c("sal", "tad")) {
+  
+  if (sp == "sal") {
+
+  # add ranked variable to dataframe
+  dat <- timeser.dat %>%
+    filter(Period == 2)
+  
+  p <- ggplot(dat, aes(x = Treat, y = Mort.sal))
+
+  } else {
+    
+  # add ranked variable to dataframe
+  dat <- timeser.dat %>%
+    filter(Period == 4)
+  
+  p <- ggplot(dat, aes(x = Treat, y = Mort.tad))
+
+  }
+
+   p2 <- p +
+    geom_boxplot(aes(colour = SalxTad), outlier.shape = NA) +
+    geom_point(
+      mapping = aes(shape = HatchTiming, colour = SalxTad),
+      position = position_jitter(width = 0.3, height = 0),
+      alpha = 0.8, size = 2.3
+      ) +  
+     labs(
+       y = cap[sp,],
+       x = "Initial size distribution x
+Salamander population x Tadpole population",
+       colour = 
+       "Salamander x
+Tadpole 
+population pair"
+     ) +
+    mytheme
+  
+  #+++++++++++++++++++++++++++++++++++++++++++++++#
+  # Full model including interaction terms
+  #+++++++++++++++++++++++++++++++++++++++++++++++#
+  dat$rank <- rank(dat[, paste0("Mort.",sp)])
+
+  srh_res <- SRH_fun(aov(rank ~ Size * Sal * Tad, data = dat))$SRH.out.table
+  srh_res %>%
+    kable("html", 4, caption = paste("SRH:", cap[sp,])) %>%
+    kable_styling("striped", position = "left") %>%        
+    print
+  
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  # If ANOVA is (marginally) significant
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  if (srh_res$P < 0.06) {
+    
+    # Tukey
+    Tukey.group <- HSD.test(
+        aov(rank ~ Treat, data = dat),
+        "Treat", group = TRUE
+      )$groups %>% dplyr::select(groups) %>%
+        mutate(Treat = rownames(.))
+    
+    # Tukey
+    TukeyHSD(
+        aov(rank ~ Treat, data = dat),
+        "Treat", group = TRUE
+      )$Treat %>%
+      as.data.frame %>%
+      rownames_to_column("Comp") %>%
+      dplyr::select("Comp", "p adj") %>%
+      kable("html", digits = 4, caption = paste("Tukey:", sp)) %>%
+      kable_styling("striped", position = "left")  %>% 
+      scroll_box(width = "100%", height = "350px") %>%
+      print()
+
+    
+     p3 <- p2 +
+      geom_text(
+        data = Tukey.group, 
+        aes(x = Treat, y = max(dat[, paste0("Mort.",sp)])*1.1, label = groups)
+        )
+
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  # If ANOVA is non-significant
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  } else {
+    
+    p3 <- p2
+
+  }
+ 
+  assign(paste0("p.", sp), p3)
+  
+}
+
+p.sal*
+  theme(
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank()
+    ) +
+  p.tad*
+    theme(
+    legend.position = 'none',
+    ) +
+  plot_layout(ncol = 1) +
+  plot_annotation(tag_levels = 'A')
+
+```
+
+<div style="margin-bottom:120px;">
+</div>
+
+# Salamander morphology
+
+### Original data description
+
+**ID** : Tank ID <br> 
+
+**Size** : Initial salamander size distribution. 
+
+- *Homo*, homogenous - suppressing salamander cannibalism <br> 
+
+- *Hetero*, heterogenous - facilitating salamander cannibalism  <br> 
+
+**Sal** : Salamander geographic population identity <br> 
+
+**Tad** : Tadpole geographic population identity <br> 
+
+**Hatchtiming** : Salamander hatch timing conditions.  <br> 
+
+- *mix*, initial size heterogenous treatment <br> 
+
+- *early*, early hatch timing sub-treatment of initial size homogenous treatment <br> 
+
+- *late*, late hatch timing sub-treatment of initial size homogenous treatment <br>
+
+**[Trait name]**_**[individual ID]** : Trait measurement of largest 4 individuals at each tank <br>
+
+Trait name <br>
+
+- *HeadWidth* : not used in the analysis <br>
+
+- *JawWidth* : used as *Gape width* later <br>
+
+- *HeadLength* : not used in the analysis <br>
+
+- *BodyLength* : used as *Trunk length* later <br>
+
+- *TailLength* : not used in the analysis <br>
+
+```{r, results='asis', fig.height = 8, fig.width = 7}
+
+dat.sal <- read.xlsx("./Data.xlsx", sheet = "Sal.morph.day18") %>%
+  mutate_at(vars(1:5), as.factor)
+
+dat.sal %>% 
+  kable("html") %>% kable_styling("striped", position = "left") %>% 
+  scroll_box(width = "100%", height = "300px")  
+
+dat.sal %>% 
+  group_by(Size, Sal, Tad) %>% 
+  summarise(length(ID)) %>% 
+  as.data.frame() %>% 
+  rename("Replicates (N)" = "length(ID)") %>% 
+  kable("html", caption = "Replications in each treatment") %>% 
+  kable_styling("striped", position = "left")
+
+```
+
+Replications are same as used in Interaction strength.
+
+```{r, results='asis'}
+
+dat.sal %<>%
+  gather(key = traitindv, value = measure, -(ID:HatchTiming)) %>%
+  mutate_if(is.character, as.factor)
+
+traitindv <- dat.sal$traitindv %>%
+  # split string by "." | into list of three columns
+  str_split(., pattern = "\\_", simplify = T, n = 2) %>%
+  unlist(.) %>%
+  as.data.frame() %>%
+  # rename colnames
+  rename(Trait = V1, Individual = V2)
+
+dat.sal.tidy <- bind_cols(dat.sal, traitindv) %>%
+  dplyr::select(-traitindv) %>%
+  mutate_at("measure", as.numeric) %>%
+  spread(key = Trait, value = measure) %>%
+  # Combine data
+  mutate(
+    SVL = HeadLength + BodyLength,
+    # HeadMorph = JawWidth / HeadWidth, # HeadMorph: measure of head morphology
+    'Relative gape width' = 
+      JawWidth / BodyLength # MouthBody: measure of mouth width per body length
+    ) %>%
+  group_by(ID) %>%
+  mutate(rank.BodyLength = order(BodyLength, decreasing=TRUE)) %>%
+  ungroup() %>%
+  right_join(IDs, .) %>%
+  rename('Gape width (mm)' = JawWidth, 'Trunk length (mm)' = BodyLength) %>%
+  as.data.frame()
+
+largest.jaw <- filter(dat.sal.tidy, rank.BodyLength == 1)
+largest.jaw$Size <- factor(largest.jaw$Size,
+  levels = c("Homo", "Hetero"), ordered = TRUE
+  )
+
+largest.jaw.tidy <- largest.jaw %>%
+  dplyr::select(Size:SalxTadxHatchtiming, "Gape width (mm)", "Trunk length (mm)", "Relative gape width") %>%
+  gather(key = Trait, value = measure, -(Size:SalxTadxHatchtiming)) %>%
+  mutate_at("Trait", as.factor)
+largest.jaw.tidy$Trait <- factor(
+  largest.jaw.tidy$Trait, 
+  levels = c("Gape width (mm)", "Trunk length (mm)", "Relative gape width")
+  )
+
+# To set range of plot, identify maximum trait value across treatments
+max.val <- largest.jaw.tidy %>%
+  as.data.frame() %>% 
+  ungroup %>%
+  group_by(Trait) %>%
+  summarise_at("measure", max) %>% 
+  `row.names<-`(., NULL) %>% # Detele existing row names
+  column_to_rownames("Trait")
+
+```
+
+<div style="margin-bottom:80px;">
+</div>
+
+### Analyze
+**Treat** : Full factorial treatment for Initial size, and salamander and tadpole population identity
+```{r, results='asis', fig.height = 11, fig.width = 7}
+
+#+++++++++++++++++++++++++++++++#
+# ANOVA for each traits
+#+++++++++++++++++++++++++++++++#
+
+for (tr in levels(largest.jaw.tidy$Trait)) {
+  
+  dat <- filter(largest.jaw.tidy, Trait == tr)
+  
+  # ANOVA
+  anova <- summary(aov(scale(dat$measure) ~ Size*Sal*Tad, data = dat))[[1]] 
+  ANOVA_stats(anova) %>%
+    kable("html", digits = 3, caption = paste(tr, "ANOVA")) %>%
+    kable_styling("striped", position = "left") %>%
+    print()
+
+  p <- ggplot(dat, aes(x = Treat, y = measure)) +
+    geom_boxplot(aes(colour = SalxTad), outlier.shape = NA) +
+    geom_point(
+      mapping = aes(shape = HatchTiming, colour = SalxTad),
+      position = position_jitter(width = 0.3, height = 0),
+      alpha = 0.8, size = 1.7
+      ) +  
+     labs(
+       y = tr,
+       x = "Salamander population x Tadpole population x
+       Hatch timing",
+       colour = 
+"Salamander x
+Tadpole 
+population pair"
+     ) +
+     labs(
+       y = tr,
+       x = "Initial size distribution x
+Salamander population x Tadpole population",
+       colour = 
+       "Salamander x
+Tadpole 
+population pair"
+     ) +
+    mytheme
+  
+  anova2 <- summary(aov(scale(dat$measure) ~ Treat, data = dat))[[1]]
+
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  # If ANOVA is (marginally) significant
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  if (anova2["Treat", "Pr(>F)"] < 0.06) {
+    
+    # Tukey
+    Tukey.group <- HSD.test(
+        aov(measure ~ Treat, data = dat),
+        "Treat", group = TRUE
+      )$groups %>% dplyr::select(groups) %>%
+        mutate(Treat = rownames(.))
+    
+    if (tr == "Gape width (mm)") {
+      
+      p2 <- p +
+        geom_text(
+          data = Tukey.group, 
+          aes(x = Treat, y = max.val["Gape width (mm)","measure"]*1.1, label = groups)
+          )
+    
+    } else {
+      
+      if (tr == "Body length (mm)") {
+        
+        p2 <- p +
+            geom_text(
+              data = Tukey.group, 
+              aes(x = Treat, y = max.val["Body length (mm)","measure"]*1.1, label = groups)
+              )
+
+      } else {
+
+        p2 <- p +
+            geom_text(
+              data = Tukey.group, 
+              aes(x = Treat, y = max.val["Relative gape width","measure"]*1.1, label = groups)
+              )
+        
+      }
+    }
+    
+    # Tukey
+    TukeyHSD(
+        aov(measure ~ Treat, data = dat),
+        "Treat", group = TRUE
+      )$Treat %>%
+      as.data.frame %>%
+      rownames_to_column("Comp") %>%
+      dplyr::select("Comp", "p adj") %>%
+      kable("html", digits = 4, caption = paste("Tukey:", tr)) %>%
+      kable_styling("striped", position = "left")  %>% 
+      scroll_box(width = "100%", height = "350px") %>%
+      print()
+    
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  # If ANOVA is non-significant
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  } else {
+    
+    p2 <- p
+
+  }
+
+  # print(p2)
+  assign(paste0("p.", tr), p2)
+    
+}
+
+#+++++++++++++++++++++++++++++++#
+# Plot
+#+++++++++++++++++++++++++++++++#
+(`p.Gape width (mm)` +
+    `p.Trunk length (mm)`*
+     theme(legend.position = 'none')
+  )*
+  theme(
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank()
+    ) +
+  `p.Relative gape width`*
+     theme(legend.position = 'none') +
+  plot_layout(ncol = 1) +
+  plot_annotation(tag_levels = 'A')
+
+largest.jaw %>%
+  group_by(Treat) %>%
+  summarise(N = length(ID)) %>%
+  kable("html", caption = "Sample size") %>%
+  kable_styling("striped", position = "left")
+
+```
+
+<div style="margin-bottom:120px;">
+</div>
+
+# Tadpole morphology
+
+### Original data description
+
+**ID** : Tank ID <br> 
+
+**Size** : Initial salamander size distribution. 
+
+- *Homo*, homogenous - suppressing salamander cannibalism <br> 
+
+- *Hetero*, heterogenous - facilitating salamander cannibalism  <br> 
+
+**Sal** : Salamander geographic population identity <br> 
+
+**Tad** : Tadpole geographic population identity <br> 
+
+**Hatchtiming** : Salamander hatch timing conditions.  <br> 
+
+- *mix*, initial size heterogenous treatment <br> 
+
+- *early*, early hatch timing sub-treatment of initial size homogenous treatment <br> 
+
+- *late*, late hatch timing sub-treatment of initial size homogenous treatment <br>
+
+**Individual** : ID of measured inditivual <br>
+
+**[Trait name].(mm)** : Trait measurement (mm) <br>
+
+- *Body.Length* <br>
+
+- *Body.Width*  <br>
+
+```{r, results='asis'}
+
+dat.tad <- read.xlsx(
+  "./Data.xlsx", sheet = "Tad.morph.day18"
+  )
+
+dat.tad %>% 
+  kable("html") %>% kable_styling("striped", position = "left") %>% 
+  scroll_box(width = "100%", height = "500px")  
+
+dat.tad %>% 
+  drop_na() %>% 
+  group_by(Size, Sal, Tad) %>% 
+  summarise(length(unique(ID))) %>% 
+  as.data.frame() %>% 
+  rename("Replicates (N)" = "length(unique(ID))") %>% 
+  kable("html", caption = "**Table S1. Replicates assessed for
+tadpole morphology.** From the tanks assessed for interaction strength, 11 tanks were excluded when assessing tadpole morphology because tadpoles were moving or inclining in the photographs.") %>% 
+  kable_styling("striped", position = "left")
+
+```
+
+```{r}
+
+dat.tad %<>% mutate_at("ID", as.factor) %>%
+  left_join(IDs) %>%
+  arrange(ID, Individual) %>%
+  drop_na(Treat) %>%
+  mutate(
+    'Relative body width' = `Body.width.(mm)`/`Body.length.(mm)`
+  ) %>%
+  mutate_at(vars(ID:Individual), as.factor) %>%
+  drop_na(contains("Length"), contains("Width"))
+dat.tad$Size <- factor(dat.tad$Size,
+  levels = c("Homo", "Hetero"), ordered = TRUE
+  )
+
+#++++++++++++++++++++++++++++++++++#
+# Mean of each tanks : dat.tad.sum
+#++++++++++++++++++++++++++++++++++#
+dat.tad.sum <- dat.tad %>%
+  group_by(ID) %>%
+  summarise_if(
+    is.numeric, 
+    funs(mean(., na.rm = TRUE), sd(., na.rm = TRUE), length(.))
+    ) %>%
+  ungroup(.) %>%
+  as.data.frame() %>%
+  dplyr::select(ID, contains("mean"), -contains("scale")) %>%
+  gather(key = Trait, value = measure, -ID) %>%
+  mutate_at(c("Trait", "ID"), as.factor) %>%
+  left_join(IDs)
+levels(dat.tad.sum$Trait) <- c(
+  "Body length (mm)", "Body width (mm)", "Relative body width"
+  ) #, "Relative body width log" 
+dat.tad.sum$Trait <- factor(
+  dat.tad.sum$Trait, 
+  levels = c("Body width (mm)", "Body length (mm)", "Relative body width"
+             )#, "Relative body width log"
+  )
+
+# To set range of plot, identify maximum trait value across treatments
+max.val <- dat.tad.sum %>%
+  ungroup %>%
+  group_by(Trait) %>%
+  summarise_at("measure", max) %>%
+  `row.names<-`(., NULL) %>%
+  column_to_rownames("Trait")
+
+```
+
+<div style="margin-bottom:80px;">
+</div>
+
+### Analyze
+
+**Treat** : Full factorial treatment for Initial size, and salamander and tadpole population identity
+
+```{r, results='asis', fig.height = 11, fig.width = 7}
+
+#++++++++++++++++++++++++++++++++#
+# Analyses
+#++++++++++++++++++++++++++++++++#
+
+for (tr in levels(dat.tad.sum$Trait)) {
+  
+  dat <- filter(dat.tad.sum, Trait == tr)
+  
+  # ANOVA
+  anova <- summary(aov(scale(dat$measure) ~ Size*Sal*Tad, data = dat))[[1]] 
+  ANOVA_stats(anova) %>%
+    kable("html", digits = 3, caption = paste(tr, "ANOVA")) %>%
+    kable_styling("striped", position = "left") %>%
+    print()
+
+  p <- ggplot(dat, aes(x = Treat, y = measure)) +
+    geom_boxplot(aes(colour = SalxTad), outlier.shape = NA) +
+    geom_point(
+      mapping = aes(shape = HatchTiming, colour = SalxTad),
+      position = position_jitter(width = 0.3, height = 0),
+      alpha = 0.8, size = 1.7
+      ) +  
+     labs(
+       y = tr,
+       x = "Salamander population x Tadpole population x
+       Hatch timing",
+       colour = 
+       "Salamander x
+Tadpole 
+population pair"
+     ) +
+     labs(
+       y = tr,
+       x = "Initial size distribution x
+Salamander population x Tadpole population",
+       colour = 
+       "Salamander x
+Tadpole 
+population pair"
+     ) +
+    mytheme
+
+  anova2 <- summary(aov(scale(dat$measure) ~ Treat, data = dat))[[1]]
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  # If ANOVA is (marginally) significant
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  if (anova2["Treat", "Pr(>F)"] < 0.06) {
+    
+    # Tukey
+    Tukey.group <- HSD.test(
+        aov(measure ~ Treat, data = dat),
+        "Treat", group = TRUE
+      )$groups %>% dplyr::select(groups) %>%
+        mutate(Treat = rownames(.))
+    
+    if (i == "Body width (mm)") {
+      
+      p2 <- p +
+        geom_text(
+          data = Tukey.group, 
+          aes(x = Treat, y = max.val["Body width (mm)","measure"]*1.03, label = groups)
+          )
+    
+    } else {
+      
+      if (tr == "Body length (mm)") {
+        
+        p2 <- p +
+            geom_text(
+              data = Tukey.group, 
+              aes(x = Treat, y = max.val["Body length (mm)","measure"]*1.03, label = groups)
+              )
+
+      } else {
+
+        p2 <- p +
+            geom_text(
+              data = Tukey.group, 
+              aes(x = Treat, y = max.val["Relative body width","measure"]*1.03, label = groups)
+              )
+        
+      }
+    }
+    
+    
+    # Tukey
+    TukeyHSD(
+        aov(measure ~ Treat, data = dat),
+        "Treat", group = TRUE
+      )$Treat %>%
+      as.data.frame %>%
+      rownames_to_column("Comp") %>%
+      dplyr::select("Comp", "p adj") %>%
+      kable("html", digits = 4, caption = paste("Tukey:", tr)) %>%
+      kable_styling("striped", position = "left")  %>% 
+      scroll_box(width = "100%", height = "350px") %>%
+      print()
+    
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  # If ANOVA is non-significant
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  } else {
+    
+    p2 <- p
+
+  }
+
+  # print(p2)
+  
+  assign(paste0("p.", tr), p2)
+  
+}
+
+(`p.Body width (mm)` +
+    `p.Body length (mm)`*
+     theme(legend.position = 'none')
+  )*
+  theme(
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank()
+    ) +
+  `p.Relative body width`*
+     theme(legend.position = 'none') +
+  plot_layout(ncol = 1) +
+  plot_annotation(tag_levels = 'A')
+
+dat %>%
+  group_by(Treat) %>%
+  summarise(N = length(ID)) %>%
+  kable("html", caption = "Sample size") %>%
+  kable_styling("striped", position = "left")
+
+```
+
+<div style="margin-bottom:120px;">
+</div>
+
+# Counting potential predator
+
+```{r}
+
+left_join(
+  # Salamander gape width data  
+  dat.sal.tidy %>% 
+    select(c("ID", "Individual", "Gape width (mm)")) %>% 
+    rename("Gape.width" = "Gape width (mm)"),
+  # Tadpole body width data (tank mean)
+  dat.tad %>% 
+    group_by(ID) %>%
+    summarise(Tad.width.mean = mean(`Body.width.(mm)`, na.rm = TRUE)),
+  by = "ID"
+  ) %>%
+  drop_na %>% 
+  group_by(ID) %>% 
+  # Count potential predator at each tank
+  summarise(
+    Potential_predator = length(Gape.width[Gape.width > Tad.width.mean]),
+  ) %>%
+  ungroup %>% 
+  right_join(IDs, ., by = "ID") %>%
+  # Summarise potential predator frequency in each treatment
+  group_by(Treat) %>%
+  summarise(
+    # N of tank in each treatment
+    Tank_examined = length(Potential_predator),  
+    # N of tank with "Potential predators"
+    Tank_with_potential_predator = length(ID[Potential_predator >= 1]),
+    # Mean N of "Potential predators"
+    Mean_potential_predator_count = mean(Potential_predator)
+    ) %>%
+  kable("html", digits = 2, caption = "Potential predator emergence") %>%
+  kable_styling("striped", position = "left")
+
+```
+
+
+<div style="margin-bottom:120px;">
+</div>
+
+# **Appendix S1** Comparing size homogenous sub-treatments
+
+By manipulating salamander hatch timing, we established an initial size heterogeneity treatment and two initial size homogenous sub-treatments differing in the hatch timing (early and late) at the beginning of the experiment. We expected that salamander and tadpole mortality did not differ between the size homogenous sub-treatments within salamander–tadpole population pairs because salamander cannibalism should be rare and thus the offensive giant salamanders should also rarely emerge in those treatments. As salamanders in size homogenous treatments are expected to be harmless for tadpoles, we also anticipated that tadpole morphology did not differ between the size homogenous sub-treatments in each salamander–tadpole population pair (i.e. following four pairs are our interest: Chitose salamander– Chitose tadpole–early hatch vs. –late hatch; Chitose salamander– Erimo tadpole–early hatch vs. –late hatch; Erimo salamander–Chitose tadpole–early hatch vs. –late hatch; Erimo salamander–Erimo tadpole–early hatch vs. –late hatch). If these expectations—mortality and morphology of both species did not differ between sub-treatments within salamander–tadpole populations pair—are satisfied, we can pool data of the sub-treatments within each salamander-tadpole populations pair. 
+
+We employed a one-way ANOVA test or Scheirer–Ray–Hare (SRH) test followed by Tukey HSD test to compare the sub-treatments across all population pairs. We used the same data as for the main analyses: salamander mortality by day 18; tadpole mortality by day 32; and morphology of both species at day 18. While we used an ANOVA for morphological data, we used a SRH test for the mortality data because the mortality of both species were highly zero-inflated (see Materials and Methods, Statistical analyses). 
+	
+In the mortality of both species, SRH detected significant heterogeneity across treatments (salamander, SRH = 49.40, P < 0.001; tadpole, SRH = 49.61, P < 0.001). However, the post-hoc Tukey HSD test did not detect any differences between the sub-treatments (Fig. S1A and S1B for salamander and tadpole, respectively). ANOVA detected significant heterogeneity across treatments in salamander morphology (gape width, F = 28.19, P < 0.001; trunk length, F = 8.03, P < 0.001; relative gape width, F = 13.01, P < 0.001) and tadpole morphology (body width, F = 5.38, P < 0.001; body length, F = 4.34, P < 0.001; relative body width, F = 2.82, P = 0.006). As with mortality, however, the post-hoc Tukey HSD test did not detect any morphological differences between the sub-treatments in each population pair (salamander gape width, Fig. S2A; salamander trunk length, Fig. S2B; salamander relative gape width, Fig. S2C; tadpole body width, Fig. S3A; tadpole body length, Fig. S3B; tadpole relative body width, Fig. S3C). 
+
+Overall, the mortality and morphology of both species did not differ between the two alternative hatch timing conditions within each population pair. We therefore pooled the data of the two initial size homogenous sub-treatments.
+
+ 
+### Interaction strength
+
+```{r, results='asis', fig.height = 8, fig.width = 7}
+
+for (sp in c("sal", "tad")) {
+  
+  if (sp == "sal") {
+
+  # add ranked variable to dataframe
+  dat <- timeser.dat %>%
+    filter(Period == 2) %>%
+    mutate(SalxTadxHatchtiming = str_c(Sal, Tad, HatchTiming, sep = " "))
+  
+  p <- ggplot(dat, aes(x = SalxTadxHatchtiming, y = Mort.sal))
+
+  } else {
+    
+  # add ranked variable to dataframe
+  dat <- timeser.dat %>%
+    filter(Period == 4) %>%
+    mutate(SalxTadxHatchtiming = str_c(Sal, Tad, HatchTiming, sep = " "))
+  
+  p <- ggplot(dat, aes(x = SalxTadxHatchtiming, y = Mort.tad))
+
+  }
+
+   p2 <- p +
+    geom_boxplot(aes(colour = SalxTad), outlier.shape = NA) +
+    geom_point(
+      mapping = aes(shape = HatchTiming, colour = SalxTad),
+      position = position_jitter(width = 0.3, height = 0),
+      alpha = 0.8, size = 2.3
+      ) +  
+     labs(
+       y = cap[sp,],
+       x = "Salamander population x Tadpole population x Hatch timing",
+       colour = 
+       "Salamander x
+Tadpole 
+population pair"
+     ) +
+    mytheme
+  
+  #+++++++++++++++++++++++++++++++++++++++++++++++#
+  # Full model including interaction terms
+  #+++++++++++++++++++++++++++++++++++++++++++++++#
+  dat$rank <- rank(dat[, paste0("Mort.",sp)])
+
+  srh_res <- SRH_fun(aov(rank ~ SalxTadxHatchtiming, data = dat))$SRH.out.table
+  srh_res %>%
+    kable("html", 4, caption = paste("SRH:", cap[sp,])) %>%
+    kable_styling("striped", position = "left") %>%        
+    print
+  
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  # If ANOVA is (marginally) significant
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  if (srh_res$P < 0.06) {
+    
+    # Tukey
+    Tukey.group <- HSD.test(
+        aov(rank ~ SalxTadxHatchtiming, data = dat),
+        "SalxTadxHatchtiming", group = TRUE
+      )$groups %>% dplyr::select(groups) %>%
+        mutate(SalxTadxHatchtiming = rownames(.))
+    
+    # Tukey
+    TukeyHSD(
+        aov(rank ~ SalxTadxHatchtiming, data = dat),
+        "SalxTadxHatchtiming", group = TRUE
+      )$SalxTadxHatchtiming %>%
+      as.data.frame %>%
+      rownames_to_column("Comp") %>%
+      dplyr::select("Comp", "p adj") %>%
+      filter(
+        Comp == "Chitose Chitose Late-Chitose Chitose Early" |
+        Comp == "Chitose Erimo Late-Chitose Erimo Early" |
+        Comp == "Erimo Erimo Late-Erimo Erimo Early" |
+        Comp == "Erimo Chitose Late-Erimo Chitose Early"
+        ) %>%
+      kable(
+        "html", digits = 4, 
+        caption = "Tukey HSD results for each population pair comparison"
+        ) %>%
+      kable_styling("striped", position = "left")  %>%
+      print()
+
+    
+     p3 <- p2 +
+      geom_text(
+        data = Tukey.group, 
+        aes(x = SalxTadxHatchtiming, y = -0.7, label = groups)
+        )
+
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  # If ANOVA is non-significant
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  } else {
+    
+    p3 <- p2
+
+  }
+ 
+  # print(p3)
+  
+  assign(paste0("p.", sp), p3)
+  
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  # Adjusted P of t-tests for same pop pairs
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  
+  for (combi in levels(dat$SalxTad)) {
+    
+    Early <- dat %>%
+      filter(SalxTadxHatchtiming == paste(combi, "Early", sep = " "))
+    
+    Late <- dat %>%
+      filter(SalxTadxHatchtiming == paste(combi, "Late", sep = " "))
+
+    # Cases if Early & Late are the same
+    if (Early$rank == Late$rank) {
+      
+      assign(
+        paste("Comp", combi, sep = "_"), 
+        tibble(
+          Pair = combi,
+          P = 1
+        )
+      )
+
+    } else {
+
+      assign(
+        paste("Comp", combi, sep = "_"),
+        tibble(
+          Pair = combi,
+          P = t.test(Early$rank, Late$rank)$p.value
+          )
+      )
+
+    }
+
+  }
+  
+  # Comp <- bind_rows(
+  #   `Comp_Chitose Chitose`,
+  #   `Comp_Chitose Erimo`,
+  #   `Comp_Erimo Chitose`,
+  #   `Comp_Erimo Erimo`
+  #   )
+  # Comp$Padj <- p.adjust(Comp$P, "BH")
+  # Comp %>%
+  #   kable("html", 4, caption = paste("Benjamini & Hochberg adjusted P:", cap[i,])) %>%
+  #   kable_styling("striped", position = "left") %>%        
+  #   print
+
+}
+
+p.sal*
+  theme(
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank()
+    ) +
+  p.tad*
+    theme(legend.position = 'none') +
+  plot_layout(ncol = 1) +
+  plot_annotation(tag_levels = 'A')
+
+```
+
+**Fig. S1** Salamander mortality by day 18 (**A**) and tadpole mortality by day 32 (**B**), shown by boxplot with raw data points. “*Early*”, “*Late*”, and “*Mix*” hatch timing indicates initial size homogenous treatments with early hatch timing and late hatch timing, and initial size heterogenous treatment, respectively. Treatments sharing the same alphabet letter are not significantly different (Tukey’s HSD for ranked variable).
+
+<div style="margin-bottom:80px;">
+</div>
+
+### Salamander morphology
+
+```{r, results='asis', fig.height = 11, fig.width = 7}
+
+for (tr in levels(largest.jaw.tidy$Trait)) {
+  
+  dat <- filter(largest.jaw.tidy, Trait == tr)
+  
+  # ANOVA
+  anova <- summary(aov(scale(dat$measure) ~ SalxTadxHatchtiming, data = dat))[[1]] 
+  ANOVA_stats(anova) %>%
+    kable("html", digits = 3, caption = paste(tr, "ANOVA")) %>%
+    kable_styling("striped", position = "left") %>%
+    print()
+
+  p <- ggplot(dat, aes(x = SalxTadxHatchtiming, y = measure)) +
+    geom_boxplot(aes(colour = SalxTad), outlier.shape = NA) +
+    geom_point(
+      mapping = aes(shape = HatchTiming, colour = SalxTad),
+      position = position_jitter(width = 0.3, height = 0),
+      alpha = 0.8, size = 1.7
+      ) +  
+     labs(
+       y = tr,
+       x = "Salamander population x Tadpole population x
+       Hatch timing",
+       colour = 
+       "Salamander x
+Tadpole 
+population pair"
+     ) +
+     labs(
+       y = tr,
+       x = "Salamander population x Tadpole population x Hatch timing",
+       colour = 
+       "Salamander x
+Tadpole 
+population pair"
+     ) +
+    mytheme
+
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  # If ANOVA is (marginally) significant
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  if (anova["SalxTadxHatchtiming", "Pr(>F)"] < 0.06) {
+    
+    # Tukey
+    Tukey.group <- HSD.test(
+        aov(measure ~ SalxTadxHatchtiming, data = dat),
+        "SalxTadxHatchtiming", group = TRUE
+      )$groups %>% dplyr::select(groups) %>%
+        mutate(SalxTadxHatchtiming = rownames(.))
+    
+    if (tr == "Gape width (mm)") {
+      
+      p2 <- p +
+        geom_text(
+          data = Tukey.group, 
+          aes(x = SalxTadxHatchtiming, y = max.val["Gape width (mm)","measure"]*1.1, label = groups)
+          )
+    
+    } else {
+      
+      if (tr == "Trunk length (mm)") {
+        
+        p2 <- p +
+            geom_text(
+              data = Tukey.group, 
+              aes(x = SalxTadxHatchtiming, y = max.val["Trunk length (mm)","measure"]*1.1, label = groups)
+              )
+
+      } else {
+
+        p2 <- p +
+            geom_text(
+              data = Tukey.group, 
+              aes(x = SalxTadxHatchtiming, y = max.val["Relative gape width","measure"]*1.1, label = groups)
+              )
+        
+      }
+    }
+    
+    # Tukey
+    TukeyHSD(
+        aov(measure ~ SalxTadxHatchtiming, data = dat),
+        "SalxTadxHatchtiming", group = TRUE
+      )$SalxTadxHatchtiming %>%
+      as.data.frame %>%
+      rownames_to_column("Comp") %>%
+      dplyr::select("Comp", "p adj") %>%
+      filter(
+        Comp == "Chitose Chitose Late-Chitose Chitose Early" |
+        Comp == "Chitose Erimo Late-Chitose Erimo Early" |
+        Comp == "Erimo Erimo Late-Erimo Erimo Early" |
+        Comp == "Erimo Chitose Late-Erimo Chitose Early"
+        ) %>%
+      kable(
+        "html", digits = 4, 
+        caption = paste("Tukey HSD results for each population pair comparison:", tr)
+        ) %>%
+      kable_styling("striped", position = "left")  %>%
+      print()
+    
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  # If ANOVA is non-significant
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  } else {
+    
+    p2 <- p
+
+  }
+
+  # print(p2)
+  assign(paste0("p.", tr), p2)
+    
+}
+
+
+#+++++++++++++++++++++++++++++++#
+# Plot
+#+++++++++++++++++++++++++++++++#
+
+(`p.Gape width (mm)` +
+    `p.Trunk length (mm)`*
+     theme(legend.position = 'none')
+  )*
+  theme(
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank()
+    ) +
+  `p.Relative gape width`*
+     theme(legend.position = 'none') +
+  plot_layout(ncol = 1) +
+  plot_annotation(tag_levels = 'A')
+
+```
+
+**Fig. S2** Salamander morphology (**A**, gape width; **B**, trunk length; **C**, relative gape width) at day 18, shown by boxplot with raw data points. See Fig. S1 for hatch timing. Treatments sharing the same alphabet letter are not significantly different (Tukey’s HSD).
+
+<div style="margin-bottom:80px;">
+</div>
+
+### Tadpole morphology
+
+```{r, results='asis', fig.height = 11, fig.width = 7}
+
+for (tr in levels(dat.tad.sum$Trait)) {
+  
+  dat <- filter(dat.tad.sum, Trait == tr)
+
+  # ANOVA
+  anova <- summary(aov(scale(dat$measure) ~ SalxTadxHatchtiming, data = dat))[[1]] 
+  ANOVA_stats(anova) %>%
+    kable("html", digits = 3, caption = paste(tr, "ANOVA")) %>%
+    kable_styling("striped", position = "left") %>%
+    print()
+
+  p <- ggplot(dat, aes(x = SalxTadxHatchtiming, y = measure)) +
+    geom_boxplot(aes(colour = SalxTad), outlier.shape = NA) +
+    geom_point(
+      mapping = aes(shape = HatchTiming, colour = SalxTad),
+      position = position_jitter(width = 0.3, height = 0),
+      alpha = 0.8, size = 1.7
+      ) +  
+     labs(
+       y = tr,
+       x = "Salamander population x Tadpole population x
+       Hatch timing",
+       colour = 
+       "Salamander x
+Tadpole 
+population pair"
+     ) +
+     labs(
+       y = tr,
+       x = "Salamander population x Tadpole population x Hatch timing",
+       colour = 
+       "Salamander x
+Tadpole 
+population pair"
+     ) +
+    mytheme
+
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  # If ANOVA is (marginally) significant
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  if (anova["SalxTadxHatchtiming", "Pr(>F)"] < 0.06) {
+    
+    # Tukey
+    Tukey.group <- HSD.test(
+        aov(measure ~ SalxTadxHatchtiming, data = dat),
+        "SalxTadxHatchtiming", group = TRUE
+      )$groups %>% dplyr::select(groups) %>%
+        mutate(SalxTadxHatchtiming = rownames(.))
+    
+    if (i == "Body width (mm)") {
+      
+      p2 <- p +
+        geom_text(
+          data = Tukey.group, 
+          aes(x = SalxTadxHatchtiming, y = max.val["Body width (mm)","measure"]*1.03, label = groups)
+          )
+    
+    } else {
+      
+      if (tr == "Body length (mm)") {
+        
+        p2 <- p +
+            geom_text(
+              data = Tukey.group, 
+              aes(x = SalxTadxHatchtiming, y = max.val["Body length (mm)","measure"]*1.03, label = groups)
+              )
+
+      } else {
+
+        p2 <- p +
+            geom_text(
+              data = Tukey.group, 
+              aes(x = SalxTadxHatchtiming, y = max.val["Relative body width","measure"]*1.03, label = groups)
+              )
+        
+      }
+    }
+    
+    # Tukey
+    TukeyHSD(
+        aov(measure ~ SalxTadxHatchtiming, data = dat),
+        "SalxTadxHatchtiming", group = TRUE
+      )$SalxTadxHatchtiming %>%
+      as.data.frame %>%
+      rownames_to_column("Comp") %>%
+      dplyr::select("Comp", "p adj") %>%
+      filter(
+        Comp == "Chitose Chitose Late-Chitose Chitose Early" |
+        Comp == "Chitose Erimo Late-Chitose Erimo Early" |
+        Comp == "Erimo Erimo Late-Erimo Erimo Early" |
+        Comp == "Erimo Chitose Late-Erimo Chitose Early"
+        ) %>%
+      kable(
+        "html", digits = 4, 
+        caption = paste("Tukey HSD results for each population pair comparison:", tr)
+        ) %>%
+      kable_styling("striped", position = "left")  %>%
+      print()
+    
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  # If ANOVA is non-significant
+  #+++++++++++++++++++++++++++++++++++++++++++++#
+  } else {
+    
+    p2 <- p
+
+  }
+
+  # print(p2)
+  
+  assign(paste0("p.", tr), p2)
+
+  # #+++++++++++++++++++++++++++++++++++++++++++++#
+  # # Adjusted P of t-tests for same pop pairs
+  # #+++++++++++++++++++++++++++++++++++++++++++++#
+  # for (h in levels(dat$SalxTad)) {
+  #   
+  #   Early <- dat %>%
+  #     filter(SalxTadxHatchtiming == paste(h, "Early", sep = " "))
+  #   
+  #   Late <- dat %>%
+  #     filter(SalxTadxHatchtiming == paste(h, "Late", sep = " "))
+  # 
+  #   assign(
+  #     paste("Comp", h, sep = "_"),
+  #     tibble(
+  #       Pair = h,
+  #       P = t.test(Early$measure, Late$measure)$p.value
+  #       )
+  #   )
+  # 
+  # }
+  # 
+  # Comp <- bind_rows(
+  #   `Comp_Chitose Chitose`,
+  #   `Comp_Chitose Erimo`,
+  #   `Comp_Erimo Chitose`,
+  #   `Comp_Erimo Erimo`
+  #   )
+  # Comp$Padj <- p.adjust(Comp$P, "BH")
+  # Comp %>%
+  #   kable("html", 4, caption = paste("Benjamini & Hochberg adjusted P:", i)) %>%
+  #   kable_styling("striped", position = "left") %>%        
+  #   print
+
+}
+
+(`p.Body width (mm)` +
+    `p.Body length (mm)`*
+     theme(legend.position = 'none')
+  )*
+  theme(
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank()
+    ) +
+  `p.Relative body width`*
+     theme(legend.position = 'none') +
+  plot_layout(ncol = 1) +
+  plot_annotation(tag_levels = 'A')
+  
+# dat %>%
+#   group_by(SalxTadxHatchtiming) %>%
+#   summarise(N = length(ID)) %>%
+#   kable("html", caption = "Sample size") %>%
+#   kable_styling("striped", position = "left")
+
+```
+
+**Fig. S3** Tadpole morphology (**A**, body width; **B**, body length; **C**, relative body width) at day 18, shown by boxplot with raw data points. For hatch timing, see Fig. S1. Treatments sharing the same alphabet letter are not significantly different (Tukey’s HSD).
+
+<div style="margin-bottom:120px;">
+</div>
+
+# Session information
+```{r}
+sessionInfo()  # show R version etc
+```
+
